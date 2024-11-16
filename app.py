@@ -43,7 +43,6 @@ class ContinentMapApp:
             'South America': [0, 255, 255],    # Yellow (BGR)
             'Europe': [255, 204, 153],         # Light Blue (BGR)
             'Africa': [159, 166, 6],           # Purple (BGR)
-            'Africa': [159,167,7],         # Teal/Cyan-green (BGR)
             'Asia': [0, 204, 0],               # Green (BGR)
             'Australia': [153, 102, 51],       # Blue (BGR)
             'Antarctica': [255, 255, 255]      # White (BGR)
