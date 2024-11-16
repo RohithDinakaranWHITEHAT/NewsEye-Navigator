@@ -1,8 +1,10 @@
+
 import cv2
 import numpy as np
 import feedparser
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 class ContinentMapApp:
     def __init__(self, image_path, new_width=1500):
         self.image = cv2.imread(image_path)
@@ -23,6 +25,11 @@ class ContinentMapApp:
         self.news_headlines = {}
         self.fetch_all_news()
 
+        # Initialize MediaPipe FaceMesh for eye tracking and blink detection
+        # self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(refine_landmarks=True)
+        # self.blink_threshold = 0.2  # Threshold for detecting a blink based on EAR
+        # self.right_eye_blink_detected = False
+
     def fetch_all_news(self):
         print("Fetching news for all continents...")
         for continent in self.get_continent_colors().keys():
@@ -35,11 +42,12 @@ class ContinentMapApp:
             'North America': [203, 192, 255],  # Pink (BGR)
             'South America': [0, 255, 255],    # Yellow (BGR)
             'Europe': [255, 204, 153],         # Light Blue (BGR)
-            'Africa': [159, 166, 6],           # Purple (BGR) - Update this color
+            'Africa': [159, 166, 6],           # Purple (BGR)
             'Asia': [0, 204, 0],               # Green (BGR)
             'Australia': [153, 102, 51],       # Blue (BGR)
             'Antarctica': [255, 255, 255]      # White (BGR)
         }
+
     def check_continent_by_color(self, x, y):
         if x >= self.map_width or y >= self.resized_image.shape[0]:
             return None
@@ -53,20 +61,24 @@ class ContinentMapApp:
                 min_diff = diff
                 closest_continent = continent_name
         return closest_continent
-
     def mouse_event(self, event, x, y, flags, param):
-        if event == cv2.EVENT_MOUSEMOVE:
+        if event == cv2.EVENT_MOUSEMOVE:  
             continent = self.check_continent_by_color(x, y)
             if continent:
-                self.current_continent = continent
+                self.current_continent = continent  
             else:
-                self.current_continent = None
-        elif event == cv2.EVENT_LBUTTONDOWN:
-            continent = self.check_continent_by_color(x, y)
-            if continent and continent != 'Antarctica':
-                self.selected_continent = continent
+                self.current_continent = None  
+
+        elif event == cv2.EVENT_LBUTTONDOWN:  
+            continent = self.check_continent_by_color(x, y)  
+            if continent and continent != 'Antarctica':  
+                self.selected_continent = continent  
             else:
-                self.selected_continent = None
+                self.selected_continent = None  
+
+
+
+
 
     def run(self):
         cv2.namedWindow('Continents Map', cv2.WINDOW_NORMAL)
@@ -79,7 +91,7 @@ class ContinentMapApp:
             news_start_x = self.map_width + 10
             cv2.rectangle(canvas, (news_start_x, 10), (news_start_x + self.news_width - 10, canvas.shape[0] - 10), (240, 240, 240), -1)
 
-            if self.current_continent and self.current_continent != 'Antarctica':
+            if self.current_continent:
                 font_scale, font_thickness, font = 1.2, 2, cv2.FONT_HERSHEY_SIMPLEX
                 cv2.putText(canvas, self.current_continent, (news_start_x + 20, 60), 
                             font, fontScale=font_scale, color=(0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
@@ -110,13 +122,13 @@ class ContinentMapApp:
 
             cv2.imshow('Continents Map', canvas)
 
+            # Check if 'q' is pressed to quit or window is closed manually
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
             if cv2.getWindowProperty('Continents Map', cv2.WND_PROP_VISIBLE) < 1:
                 break
 
         cv2.destroyAllWindows()
-
 class ContinentNewsFetcher:
     def __init__(self):
         self.rss_feeds = {
