@@ -1,10 +1,9 @@
-
 import cv2
 import numpy as np
 import feedparser
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+from PIL import Image, ImageDraw, ImageFont
+
 class ContinentMapApp:
     def __init__(self, image_path, new_width=1500):
         self.image = cv2.imread(image_path)
@@ -20,22 +19,9 @@ class ContinentMapApp:
         new_height = int(self.map_width * aspect_ratio)  # Maintain aspect ratio
         self.resized_image = cv2.resize(self.image, (self.map_width, new_height))
         self.current_continent = None
-        self.selected_continent = None
+        self.displayed_continent = None
         self.news_fetcher = ContinentNewsFetcher()
         self.news_headlines = {}
-        self.fetch_all_news()
-
-        # Initialize MediaPipe FaceMesh for eye tracking and blink detection
-        # self.mp_face_mesh = mp.solutions.face_mesh.FaceMesh(refine_landmarks=True)
-        # self.blink_threshold = 0.2  # Threshold for detecting a blink based on EAR
-        # self.right_eye_blink_detected = False
-
-    def fetch_all_news(self):
-        print("Fetching news for all continents...")
-        for continent in self.get_continent_colors().keys():
-            if continent != 'Antarctica':
-                self.news_headlines[continent] = self.news_fetcher.get_news_for_continent(continent)
-        print("News fetching complete.")
 
     def get_continent_colors(self):
         return {
@@ -61,74 +47,100 @@ class ContinentMapApp:
                 min_diff = diff
                 closest_continent = continent_name
         return closest_continent
+
     def mouse_event(self, event, x, y, flags, param):
-        if event == cv2.EVENT_MOUSEMOVE:  
-            continent = self.check_continent_by_color(x, y)
-            if continent:
-                self.current_continent = continent  
-            else:
-                self.current_continent = None  
+        if event == cv2.EVENT_MOUSEMOVE:
+            new_continent = self.check_continent_by_color(x, y)
+            if new_continent != self.current_continent:
+                self.current_continent = new_continent
+                self.displayed_continent = None  # Clear displayed continent on hover change
 
-        elif event == cv2.EVENT_LBUTTONDOWN:  
-            continent = self.check_continent_by_color(x, y)  
-            if continent and continent != 'Antarctica':  
-                self.selected_continent = continent  
-            else:
-                self.selected_continent = None  
-
-
-
-
+        elif event == cv2.EVENT_LBUTTONDOWN:
+            clicked_continent = self.check_continent_by_color(x, y)
+            if clicked_continent and clicked_continent != 'Antarctica':
+                self.displayed_continent = clicked_continent
+                if clicked_continent not in self.news_headlines:
+                    print(f"Fetching news for {clicked_continent}...")
+                    self.news_headlines[clicked_continent] = self.news_fetcher.get_news_for_continent(clicked_continent)
+                    print("News fetching complete.")
 
     def run(self):
         cv2.namedWindow('Continents Map', cv2.WINDOW_NORMAL)
         cv2.setMouseCallback('Continents Map', self.mouse_event)
+
+        # Load fonts
+        title_font = ImageFont.truetype("ARIAL.ttf", 30)  # Adjust path and size as needed
+        content_font = ImageFont.truetype("ARIAL.ttf", 16)  # Adjust path and size as needed
 
         while True:
             canvas = np.ones((self.resized_image.shape[0], self.screen_width, 3), dtype=np.uint8) * 255
             canvas[:, :self.map_width] = self.resized_image
 
             news_start_x = self.map_width + 10
-            cv2.rectangle(canvas, (news_start_x, 10), (news_start_x + self.news_width - 10, canvas.shape[0] - 10), (240, 240, 240), -1)
+            news_height = canvas.shape[0] - 20
+            news_width = self.news_width - 20
+
+            news_image = Image.new('RGB', (news_width, news_height), color=(240, 240, 240))
+            draw = ImageDraw.Draw(news_image)
 
             if self.current_continent:
-                font_scale, font_thickness, font = 1.2, 2, cv2.FONT_HERSHEY_SIMPLEX
-                cv2.putText(canvas, self.current_continent, (news_start_x + 20, 60), 
-                            font, fontScale=font_scale, color=(0, 0, 0), thickness=font_thickness, lineType=cv2.LINE_AA)
+                draw.text((20, 20), self.current_continent, font=title_font, fill=(0, 0, 0))
 
-            if self.selected_continent:
-                line_y_offset = 120
-                max_lines = 5
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                for i, headline in enumerate(self.news_headlines[self.selected_continent][:max_lines]):
-                    words = headline.split()
-                    lines = []
-                    current_line = ""
-                    for word in words:
-                        if cv2.getTextSize(current_line + " " + word, font, fontScale=0.6, thickness=1)[0][0] < (self.news_width - 40):
-                            current_line += " " + word if current_line else word
+            if self.displayed_continent:
+                y_offset = 65
+                line_spacing = 25  # Reduced from 30
+                headline_spacing = 3  # Reduced from 20
+                
+                for i, headline in enumerate(self.news_headlines[self.displayed_continent][:10]):
+                    # Wrap text
+                    wrapped_text = self.wrap_text(headline, content_font, news_width - 40)
+                    
+                    # Draw bullet point
+                    draw.ellipse([20, y_offset + 6, 26, y_offset + 12], fill=(0, 0, 0))
+                    
+                    # Draw text
+                    for j, line in enumerate(wrapped_text):
+                        # Add extra space only for the first line of each headline
+                        if j == 0:
+                            draw.text((40, y_offset), line, font=content_font, fill=(0, 0, 0))
+                            y_offset += line_spacing
                         else:
-                            lines.append(current_line)
-                            current_line = word
-                    if current_line:
-                        lines.append(current_line)
+                            draw.text((40, y_offset - 5), line, font=content_font, fill=(0, 0, 0))
+                            y_offset += line_spacing - 5
+                    
+                    y_offset += headline_spacing  # Reduced space between headlines
 
-                    for j, line in enumerate(lines):
-                        y_pos = line_y_offset + (i * 80) + (j * 30)
-                        if y_pos < canvas.shape[0] - 40:
-                            cv2.putText(canvas, f"{i+1}. {line}" if j == 0 else f" {line}", 
-                                        (news_start_x + 20, y_pos), font, fontScale=0.6,
-                                        color=(0, 0, 0), thickness=1, lineType=cv2.LINE_AA)
+                    # Check if we're running out of space
+                    if y_offset > news_height - 40:
+                        draw.text((20, y_offset), "...", font=content_font, fill=(0, 0, 0))
+                        break
+
+            news_array = np.array(news_image)
+            canvas[10:10+news_height, news_start_x:news_start_x+news_width] = news_array
 
             cv2.imshow('Continents Map', canvas)
 
-            # Check if 'q' is pressed to quit or window is closed manually
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
             if cv2.getWindowProperty('Continents Map', cv2.WND_PROP_VISIBLE) < 1:
                 break
 
         cv2.destroyAllWindows()
+
+    def wrap_text(self, text, font, max_width):
+        lines = []
+        words = text.split()
+        current_line = words[0]
+        for word in words[1:]:
+            if font.getsize(current_line + ' ' + word)[0] <= max_width:
+                current_line += ' ' + word
+            else:
+                lines.append(current_line)
+                current_line = word
+        lines.append(current_line)
+        return lines
+    
+
 class ContinentNewsFetcher:
     def __init__(self):
         self.rss_feeds = {
@@ -153,24 +165,31 @@ class ContinentNewsFetcher:
             ],
             'Australia': [
                 'https://www.abc.net.au/news/feed/45910/rss.xml'
+            ],
+            'Antarctica': [
+                'https://antarcticsun.usap.gov/feed/'
             ]
         }
 
     def fetch_feed(self, url):
         try:
             feed = feedparser.parse(url)
-            return [entry.title for entry in feed.entries[:5]]
+            return [entry.title for entry in feed.entries[:10]]  
         except Exception as e:
             print(f"Error fetching feed {url}: {e}")
             return []
 
     def get_news_for_continent(self, continent_name):
         feeds = self.rss_feeds.get(continent_name)
+        
         headlines = []
+        
         with ThreadPoolExecutor(max_workers=5) as executor:
             future_to_url = {executor.submit(self.fetch_feed, url): url for url in feeds}
+            
             for future in as_completed(future_to_url):
                 headlines.extend(future.result())
+
         return headlines if headlines else ["No news found"]
 
 if __name__ == "__main__":
