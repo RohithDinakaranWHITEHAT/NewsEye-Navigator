@@ -22,7 +22,24 @@ class ContinentMapApp:
         self.displayed_continent = None
         self.news_fetcher = ContinentNewsFetcher()
         self.news_headlines = {}
-
+        self.news_fetcher = ContinentNewsFetcher()
+        self.news_headlines = {}
+        self.preload_news()
+        self.scroll_position = 0
+        self.max_scroll = 0
+    def preload_news(self):
+        print("Preloading news for all continents...")
+        continents = ['North America', 'South America', 'Europe', 'Africa', 'Asia', 'Australia']
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            future_to_continent = {executor.submit(self.news_fetcher.get_news_for_continent, continent): continent for continent in continents}
+            for future in as_completed(future_to_continent):
+                continent = future_to_continent[future]
+                try:
+                    self.news_headlines[continent] = future.result()
+                    print(f"News fetched for {continent}")
+                except Exception as exc:
+                    print(f"Error fetching news for {continent}: {exc}")
+        print("News preloading complete.")
     def get_continent_colors(self):
         return {
             'North America': [203, 192, 255],  # Pink (BGR)
@@ -42,10 +59,11 @@ class ContinentMapApp:
         closest_continent = None
         min_diff = float('inf')
         for continent_name, color in continent_colors.items():
-            diff = np.linalg.norm(np.array(pixel_color) - np.array(color))
-            if diff < min_diff:
-                min_diff = diff
-                closest_continent = continent_name
+            if continent_name != 'Antarctica':  # Exclude Antarctica from color matching
+                diff = np.linalg.norm(np.array(pixel_color) - np.array(color))
+                if diff < min_diff:
+                    min_diff = diff
+                    closest_continent = continent_name
         return closest_continent
 
     def mouse_event(self, event, x, y, flags, param):
@@ -53,24 +71,23 @@ class ContinentMapApp:
             new_continent = self.check_continent_by_color(x, y)
             if new_continent != self.current_continent:
                 self.current_continent = new_continent
-                self.displayed_continent = None  # Clear displayed continent on hover change
-
         elif event == cv2.EVENT_LBUTTONDOWN:
             clicked_continent = self.check_continent_by_color(x, y)
             if clicked_continent and clicked_continent != 'Antarctica':
                 self.displayed_continent = clicked_continent
-                if clicked_continent not in self.news_headlines:
-                    print(f"Fetching news for {clicked_continent}...")
-                    self.news_headlines[clicked_continent] = self.news_fetcher.get_news_for_continent(clicked_continent)
-                    print("News fetching complete.")
+                self.scroll_position = 0  # Reset scroll position when changing continent
+        elif event == cv2.EVENT_MOUSEWHEEL:
+            if flags > 0:  # Scroll up
+                self.scroll_position = max(0, self.scroll_position - 30)
+            else:  # Scroll down
+                self.scroll_position = min(self.max_scroll, self.scroll_position + 30)
 
     def run(self):
         cv2.namedWindow('Continents Map', cv2.WINDOW_NORMAL)
         cv2.setMouseCallback('Continents Map', self.mouse_event)
 
-        # Load fonts
-        title_font = ImageFont.truetype("ARIAL.ttf", 30)  # Adjust path and size as needed
-        content_font = ImageFont.truetype("ARIAL.ttf", 16)  # Adjust path and size as needed
+        title_font = ImageFont.truetype("ARIAL.ttf", 36)
+        content_font = ImageFont.truetype("ARIAL.ttf", 20)
 
         while True:
             canvas = np.ones((self.resized_image.shape[0], self.screen_width, 3), dtype=np.uint8) * 255
@@ -79,7 +96,6 @@ class ContinentMapApp:
             news_start_x = self.map_width + 10
             news_height = canvas.shape[0] - 20
             news_width = self.news_width - 20
-
             news_image = Image.new('RGB', (news_width, news_height), color=(240, 240, 240))
             draw = ImageDraw.Draw(news_image)
 
@@ -87,46 +103,38 @@ class ContinentMapApp:
                 draw.text((20, 20), self.current_continent, font=title_font, fill=(0, 0, 0))
 
             if self.displayed_continent:
-                y_offset = 65
-                line_spacing = 25  # Reduced from 30
-                headline_spacing = 3  # Reduced from 20
-                
-                for i, headline in enumerate(self.news_headlines[self.displayed_continent][:10]):
-                    # Wrap text
+                y_offset = 65 - self.scroll_position
+                line_spacing = 30
+                headline_spacing = 10
+
+                for headline in self.news_headlines[self.displayed_continent]:
                     wrapped_text = self.wrap_text(headline, content_font, news_width - 40)
                     
-                    # Draw bullet point
-                    draw.ellipse([20, y_offset + 6, 26, y_offset + 12], fill=(0, 0, 0))
-                    
-                    # Draw text
-                    for j, line in enumerate(wrapped_text):
-                        # Add extra space only for the first line of each headline
-                        if j == 0:
-                            draw.text((40, y_offset), line, font=content_font, fill=(0, 0, 0))
+                    # Only draw bullet points and text if they are within the visible area
+                    if y_offset + len(wrapped_text) * line_spacing > 65:
+                        if y_offset >= 65:
+                            draw.ellipse([20, y_offset + 8, 28, y_offset + 16], fill=(0, 0, 0))
+                        for line in wrapped_text:
+                            if y_offset >= 65:
+                                draw.text((40, y_offset), line, font=content_font, fill=(0, 0, 0))
                             y_offset += line_spacing
-                        else:
-                            draw.text((40, y_offset - 5), line, font=content_font, fill=(0, 0, 0))
-                            y_offset += line_spacing - 5
+                    else:
+                        y_offset += len(wrapped_text) * line_spacing
                     
-                    y_offset += headline_spacing  # Reduced space between headlines
+                    y_offset += headline_spacing
 
-                    # Check if we're running out of space
-                    if y_offset > news_height - 40:
-                        draw.text((20, y_offset), "...", font=content_font, fill=(0, 0, 0))
-                        break
+                self.max_scroll = max(0, y_offset - news_height)
 
             news_array = np.array(news_image)
             canvas[10:10+news_height, news_start_x:news_start_x+news_width] = news_array
 
             cv2.imshow('Continents Map', canvas)
-
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
             if cv2.getWindowProperty('Continents Map', cv2.WND_PROP_VISIBLE) < 1:
                 break
 
         cv2.destroyAllWindows()
-
     def wrap_text(self, text, font, max_width):
         lines = []
         words = text.split()
