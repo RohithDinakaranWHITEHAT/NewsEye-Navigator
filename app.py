@@ -48,7 +48,7 @@ class ContinentMapApp:
             'Africa': [159, 166, 6],           # Purple (BGR)
             'Asia': [0, 204, 0],               # Green (BGR)
             'Australia': [153, 102, 51],       # Blue (BGR)
-            'Antarctica': [255, 255, 255]      # White (BGR)
+            ' ': [255, 255, 255]      # White (BGR)
         }
 
     def check_continent_by_color(self, x, y):
@@ -126,7 +126,7 @@ class ContinentMapApp:
                 self.max_scroll = max(0, y_offset - news_height)
 
             news_array = np.array(news_image)
-            canvas[10:10+news_height, news_start_x:news_start_x+news_width] = news_array
+            canvas[20:20+news_height, news_start_x:news_start_x+news_width] = news_array
 
             cv2.imshow('Continents Map', canvas)
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -182,7 +182,7 @@ class ContinentNewsFetcher:
     def fetch_feed(self, url):
         try:
             feed = feedparser.parse(url)
-            return [entry.title for entry in feed.entries[:10]]  
+            return [entry.title for entry in feed.entries[:20]]  
         except Exception as e:
             print(f"Error fetching feed {url}: {e}")
             return []
