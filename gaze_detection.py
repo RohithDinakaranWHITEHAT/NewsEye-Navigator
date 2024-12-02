@@ -7,13 +7,6 @@ from yolo5face.get_model import get_model
 from scipy.spatial import distance as dist
 import time
 
-def eye_aspect_ratio(eye):
-    A = dist.euclidean(eye[1], eye[5])
-    B = dist.euclidean(eye[2], eye[4])
-    C = dist.euclidean(eye[0], eye[3])
-    ear = (A + B) / (2.0 * C)
-    return ear
-
 class AdvancedGazeMovementControl:
     def __init__(self):
         self.screen_width, self.screen_height = pyautogui.size()
@@ -36,6 +29,13 @@ class AdvancedGazeMovementControl:
         self.left_blink_start_time = None
         self.right_blink_start_time = None
 
+    def eye_aspect_ratio(self, eye):
+        A = dist.euclidean(eye[1], eye[5])
+        B = dist.euclidean(eye[2], eye[4])
+        C = dist.euclidean(eye[0], eye[3])
+        ear = (A + B) / (2.0 * C)
+        return ear
+
     def detect_face_and_eyes(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         rects = self.detector(gray, 0)
@@ -47,8 +47,8 @@ class AdvancedGazeMovementControl:
             left_eye = shape[36:42]
             right_eye = shape[42:48]
             
-            left_ear = eye_aspect_ratio(left_eye)
-            right_ear = eye_aspect_ratio(right_eye)
+            left_ear = self.eye_aspect_ratio(left_eye)
+            right_ear = self.eye_aspect_ratio(right_eye)
             
             left_eye_hull = cv2.convexHull(left_eye)
             right_eye_hull = cv2.convexHull(right_eye)
@@ -60,6 +60,7 @@ class AdvancedGazeMovementControl:
             return frame, face_center, left_ear, right_ear, left_eye, right_eye
         
         return frame, None, None, None, None, None
+
     def move_cursor(self, face_center, frame_shape):
         if self.last_face_center is None:
             self.last_face_center = face_center

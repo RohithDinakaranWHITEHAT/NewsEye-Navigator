@@ -3,7 +3,7 @@ import numpy as np
 import feedparser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont
-
+from gaze_detection import AdvancedGazeMovementControl
 class ContinentMapApp:
     def __init__(self, image_path, new_width=1500):
         self.image = cv2.imread(image_path)
@@ -22,11 +22,12 @@ class ContinentMapApp:
         self.displayed_continent = None
         self.news_fetcher = ContinentNewsFetcher()
         self.news_headlines = {}
-        self.news_fetcher = ContinentNewsFetcher()
-        self.news_headlines = {}
+
         self.preload_news()
         self.scroll_position = 0
         self.max_scroll = 0
+        self.gaze_control = AdvancedGazeMovementControl()
+        self.cap = cv2.VideoCapture(0)
     def preload_news(self):
         print("Preloading news for all continents...")
         continents = ['North America', 'South America', 'Europe', 'Africa', 'Asia', 'Australia']
@@ -75,13 +76,12 @@ class ContinentMapApp:
             clicked_continent = self.check_continent_by_color(x, y)
             if clicked_continent and clicked_continent != 'Antarctica':
                 self.displayed_continent = clicked_continent
-                self.scroll_position = 0  # Reset scroll position when changing continent
+                self.scroll_position = 0
         elif event == cv2.EVENT_MOUSEWHEEL:
-            if flags > 0:  # Scroll up
+            if flags > 0:
                 self.scroll_position = max(0, self.scroll_position - 30)
-            else:  # Scroll down
+            else:
                 self.scroll_position = min(self.max_scroll, self.scroll_position + 30)
-
     def run(self):
         cv2.namedWindow('Continents Map', cv2.WINDOW_NORMAL)
         cv2.setMouseCallback('Continents Map', self.mouse_event)
@@ -90,6 +90,13 @@ class ContinentMapApp:
         content_font = ImageFont.truetype("ARIAL.ttf", 20)
 
         while True:
+            ret, frame = self.cap.read()
+            if not ret:
+                break
+
+            # Process eye gaze data without displaying the frame
+            self.gaze_control.process_frame(frame)
+
             canvas = np.ones((self.resized_image.shape[0], self.screen_width, 3), dtype=np.uint8) * 255
             canvas[:, :self.map_width] = self.resized_image
 
@@ -109,8 +116,6 @@ class ContinentMapApp:
 
                 for headline in self.news_headlines[self.displayed_continent]:
                     wrapped_text = self.wrap_text(headline, content_font, news_width - 40)
-                    
-                    # Only draw bullet points and text if they are within the visible area
                     if y_offset + len(wrapped_text) * line_spacing > 65:
                         if y_offset >= 65:
                             draw.ellipse([20, y_offset + 8, 28, y_offset + 16], fill=(0, 0, 0))
@@ -120,7 +125,6 @@ class ContinentMapApp:
                             y_offset += line_spacing
                     else:
                         y_offset += len(wrapped_text) * line_spacing
-                    
                     y_offset += headline_spacing
 
                 self.max_scroll = max(0, y_offset - news_height)
@@ -129,12 +133,17 @@ class ContinentMapApp:
             canvas[20:20+news_height, news_start_x:news_start_x+news_width] = news_array
 
             cv2.imshow('Continents Map', canvas)
+
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
+
             if cv2.getWindowProperty('Continents Map', cv2.WND_PROP_VISIBLE) < 1:
                 break
 
+        self.cap.release()
         cv2.destroyAllWindows()
+
+
     def wrap_text(self, text, font, max_width):
         lines = []
         words = text.split()
