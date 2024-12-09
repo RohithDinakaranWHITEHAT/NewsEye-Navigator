@@ -9,7 +9,8 @@ import mediapipe as mp
 import pyautogui
 import util
 from pynput.mouse import Button, Controller
-
+import keyboard
+from pynput import keyboard
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 class ContinentMapApp:
     def __init__(self, image_path, new_width=1500):
@@ -26,6 +27,10 @@ class ContinentMapApp:
             min_tracking_confidence=0.7,
             max_num_hands=1
         )
+        self.use_eye_control = True
+        # Initialize keyboard listener
+        self.keyboard_listener = keyboard.Listener(on_press=self.on_key_press)
+        self.keyboard_listener.start()
         self.draw = mp.solutions.drawing_utils
         self.mouse = Controller()
         self.screen_width = new_width
@@ -45,7 +50,18 @@ class ContinentMapApp:
         self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  
         if not self.cap.isOpened():
             raise RuntimeError("Could not open video capture device")
-        
+    def on_key_press(self, key):
+        try:
+            if key == keyboard.Key.tab:
+                self.use_eye_control = not self.use_eye_control
+                mode = "Eye" if self.use_eye_control else "Hand"
+                print(f"Switched to {mode} Control")
+        except AttributeError:
+            pass
+    def toggle_control_mode(self, _):
+        self.use_eye_control = not self.use_eye_control
+        mode = "Eye" if self.use_eye_control else "Hand"
+        print(f"Switched to {mode} Control") 
     def preload_news(self):
         print("Preloading news for all continents...")
         continents = ['North America', 'South America', 'Europe', 'Africa', 'Asia', 'Australia']
@@ -189,18 +205,19 @@ class ContinentMapApp:
             ret, frame = self.cap.read()
             if not ret:
                 break
-            self.gaze_control.process_frame(frame)
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            processed = self.hands.process(frame_rgb)
-            
-            landmark_list = []
-            if processed.multi_hand_landmarks:
-                hand_landmarks = processed.multi_hand_landmarks[0]
-                self.draw.draw_landmarks(frame, hand_landmarks, self.mpHands.HAND_CONNECTIONS)
-                for lm in hand_landmarks.landmark:
-                    landmark_list.append((1 - lm.x, lm.y))
+            if self.use_eye_control:
+                self.gaze_control.process_frame(frame)
+            else:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                processed = self.hands.process(frame_rgb)
                 
-                self.detect_hand_gesture(frame, landmark_list, processed)
+                landmark_list = []
+                if processed.multi_hand_landmarks:
+                    hand_landmarks = processed.multi_hand_landmarks[0]
+                    self.draw.draw_landmarks(frame, hand_landmarks, self.mpHands.HAND_CONNECTIONS)
+                    for lm in hand_landmarks.landmark:
+                        landmark_list.append((1 - lm.x, lm.y))
+                    self.detect_hand_gesture(frame, landmark_list, processed)
             canvas = np.ones((self.resized_image.shape[0], self.screen_width, 3), dtype=np.uint8) * 255
             scale = min(canvas_height / self.resized_image.shape[0], 
                     (canvas_width * 0.75) / self.resized_image.shape[1])
