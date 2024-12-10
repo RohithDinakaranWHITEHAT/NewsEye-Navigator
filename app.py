@@ -195,43 +195,48 @@ class ContinentMapApp:
         if not self.cap.isOpened():
             print("Error: Camera not accessible")
             return
-        canvas_height = int(self.screen_height * 0.9)  
-        canvas_width = self.screen_width   
+
+        canvas_height = int(self.screen_height * 0.9)
+        canvas_width = self.screen_width
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         title_font = ImageFont.truetype("ARIAL.ttf", 36)
         content_font = ImageFont.truetype("ARIAL.ttf", 20)
+
         while True:
             ret, frame = self.cap.read()
             if not ret:
                 break
-            if self.use_eye_control:
-                self.gaze_control.process_frame(frame)
+
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            processed = self.hands.process(frame_rgb)
+
+            if processed.multi_hand_landmarks:
+                # Hand detected, use hand gesture control
+                hand_landmarks = processed.multi_hand_landmarks[0]
+                self.draw.draw_landmarks(frame, hand_landmarks, self.mpHands.HAND_CONNECTIONS)
+                landmark_list = [(1 - lm.x, lm.y) for lm in hand_landmarks.landmark]
+                self.detect_hand_gesture(frame, landmark_list, processed)
             else:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                processed = self.hands.process(frame_rgb)
-                
-                landmark_list = []
-                if processed.multi_hand_landmarks:
-                    hand_landmarks = processed.multi_hand_landmarks[0]
-                    self.draw.draw_landmarks(frame, hand_landmarks, self.mpHands.HAND_CONNECTIONS)
-                    for lm in hand_landmarks.landmark:
-                        landmark_list.append((1 - lm.x, lm.y))
-                    self.detect_hand_gesture(frame, landmark_list, processed)
+                # No hand detected, use eye control
+                self.gaze_control.process_frame(frame)
+
             canvas = np.ones((self.resized_image.shape[0], self.screen_width, 3), dtype=np.uint8) * 255
-            scale = min(canvas_height / self.resized_image.shape[0], 
-                    (canvas_width * 0.75) / self.resized_image.shape[1])
+            scale = min(canvas_height / self.resized_image.shape[0], (canvas_width * 0.75) / self.resized_image.shape[1])
             map_display_width = int(self.resized_image.shape[1] * scale)
             map_display_height = int(self.resized_image.shape[0] * scale)
             displayed_map = cv2.resize(self.resized_image, (map_display_width, map_display_height))
             canvas[:map_display_height, :map_display_width] = displayed_map
+
             news_start_x = self.map_width + 10
-            news_height = min(canvas.shape[0] - 40, self.resized_image.shape[0] - 40)  
+            news_height = min(canvas.shape[0] - 40, self.resized_image.shape[0] - 40)
             news_width = self.news_width - 20
             news_image = Image.new('RGB', (news_width, news_height), color=(240, 240, 240))
             draw = ImageDraw.Draw(news_image)
+
             if self.current_continent:
                 draw.text((20, 20), self.current_continent, font=title_font, fill=(0, 0, 0))
+
             if self.displayed_continent:
                 y_offset = 65 - self.scroll_position
                 line_spacing = 30
@@ -248,16 +253,20 @@ class ContinentMapApp:
                     else:
                         y_offset += len(wrapped_text) * line_spacing
                     y_offset += headline_spacing
+
                 self.max_scroll = max(0, y_offset - news_height)
+
             news_array = np.array(news_image)
             if news_array.shape[0] > news_height:
                 news_array = news_array[:news_height, :, :]
             canvas[20:20+news_height, news_start_x:news_start_x+news_width] = news_array
+
             cv2.imshow('Continents Map', canvas)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
             if cv2.getWindowProperty('Continents Map', cv2.WND_PROP_VISIBLE) < 1:
                 break
+
         self.cap.release()
         cv2.destroyAllWindows()
 
